@@ -1,9 +1,10 @@
 use colored::Colorize;
 use std::{
+    collections::HashMap,
     io::{self, Write},
     str::FromStr,
     env,
-    path::Path,
+    path::{Path, PathBuf},
     fs,
 };
 
@@ -11,19 +12,23 @@ use std::{
 const SUCCESS_CODE: i32 = 0;
 const ERROR_CODE  : i32 = 1;
 const EXIT_CODE   : i32 = -1;
+const CRLF        : &str = "\r\n";
 
 
 fn main() {
     let clear_escape_sequence = "\x1b[2J\x1b[1;1H";
     print!("{}", clear_escape_sequence);
-    let prompt_seq = "@";
+    let prompt_char = '🚀';
     loop {
         let current_dir = env::current_dir().unwrap();
-        print!("\x1b[92m{}:\x1b[0m\x1b[94m{}\x1b[0m ", prompt_seq, current_dir.to_str().unwrap());
+        print!("\x1b[92m{}:\x1b[0m\x1b[94m{}\x1b[0m ", prompt_char, current_dir.to_str().unwrap());
 
         io::stdout().flush().unwrap();
         let mut command_input = String::new();
         io::stdin().read_line(&mut command_input).expect("Failed to read in command");
+        if command_input == CRLF {
+            continue;
+        }
         let command = tokenize_command(command_input);
         let return_code = process_command(command);
         if return_code == EXIT_CODE {
@@ -65,18 +70,18 @@ impl FromStr for BuiltinCommand {
 }
 
 fn tokenize_command(command: String) -> Command {
-    if command == "\n" {
+    if command == "\r\n" {
         return Command { keyword: String::new(), arguments: Vec::<String>::new(), };
     }
     let mut tokens: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
-    
+   
     Command { 
         keyword: tokens.remove(0), 
         arguments: tokens,
     }
 }
 
-fn process_command(command: Command) -> i32 {
+fn process_command(mut command: Command) -> i32 {
     match BuiltinCommand::from_str(&command.keyword) {
         Ok(BuiltinCommand::Echo) => builtin_echo(&command.arguments),
         Ok(BuiltinCommand::History) => builtin_history(&command.arguments),
@@ -86,10 +91,73 @@ fn process_command(command: Command) -> i32 {
         Ok(BuiltinCommand::Clear) => builtin_clear(&command.arguments),
         Ok(BuiltinCommand::Exit) => EXIT_CODE,
         Err(()) => {
-            println!("Command not found");
-            ERROR_CODE
+            let args = command.arguments.clone();
+            if !command.keyword.contains(&String::from(".exe")) {
+                command.keyword.push_str(".exe");
+            }
+            match find_executable(command) {
+                Ok(path) => {
+                    let mut process = std::process::Command::new(path);
+                    process.args(args);
+                    if let Ok(mut child) = process.spawn() {
+                        child.wait().expect("Command wasn't running");
+                        SUCCESS_CODE
+                    } else {
+                        println!("Command didn't start");
+                        ERROR_CODE
+                    }
+                }
+                Err(_) => {
+                    println!("Command not found");
+                    ERROR_CODE
+                }
+            }
         }
     }
+}
+
+fn find_executable(command: Command) -> Result<PathBuf, std::io::Error> {
+    fn search(keyword: &str, dir: &Path) -> Result<(), std::io::Error> {
+        for entry in fs::read_dir(dir)? {
+            if let Ok(entry) = entry {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_file() || metadata.is_symlink() {
+                        if let Some(filename) = entry.path().file_name() {
+                            if filename == keyword {
+                                if metadata.is_symlink() {
+                                    println!("It's a symbolic link");
+                                    return Err(std::io::ErrorKind::InvalidData.into());
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(std::io::ErrorKind::NotFound.into())
+    }
+
+    if let Ok(mut dir) = env::current_dir() {
+        if let Ok(()) = search(&command.keyword, &dir) {
+            let exec_name = command.keyword;
+            dir.push(exec_name);
+            return Ok(dir);
+        }
+    }
+
+    let vars: HashMap<String, String> = env::vars().into_iter().collect();
+    let values: &Vec<&str> = &vars["Path"].split(";").collect();
+
+    for entry in values {
+        if let Ok(()) = search(&command.keyword, Path::new(entry)) {
+            let mut path = PathBuf::from(entry);
+            let exec_name = command.keyword;
+            path.push(exec_name);
+            return Ok(path);
+        }
+    }
+    return Err(std::io::ErrorKind::NotFound.into());
 }
 
 fn builtin_echo(args: &Vec<String>) -> i32 {
@@ -113,13 +181,13 @@ fn builtin_cd(args: &Vec<String>) -> i32 {
         return ERROR_CODE;
     }
     if args.len() == 0 {
-        let path = Path::new("/home/gleb");
+        let path = Path::new("C:\\Users\\Глеб");
         env::set_current_dir(path).unwrap();
         return ERROR_CODE;
     }
     let path;
     if args[0] == "~" {
-        path = Path::new("/home/gleb"); 
+        path = Path::new("C:\\Users\\Глеб"); 
     } else {
         path = Path::new(&args[0]);
     }
