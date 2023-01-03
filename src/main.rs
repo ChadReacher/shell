@@ -16,9 +16,10 @@ const EXIT_CODE   : i32 = -1;
 fn main() {
     let clear_escape_sequence = "\x1b[2J\x1b[1;1H";
     print!("{}", clear_escape_sequence);
-    let prompt_seq = "\x1b[92m@\x1b[0m";
+    let prompt_seq = "@";
     loop {
-        print!("{} ", prompt_seq);
+        let current_dir = env::current_dir().unwrap();
+        print!("\x1b[92m{}:\x1b[0m\x1b[94m{}\x1b[0m ", prompt_seq, current_dir.to_str().unwrap());
 
         io::stdout().flush().unwrap();
         let mut command_input = String::new();
