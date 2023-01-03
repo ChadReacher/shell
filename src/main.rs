@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::{
     io::{self, Write},
     str::FromStr,
@@ -5,13 +6,35 @@ use std::{
     path::Path,
     fs,
 };
-use colored::Colorize;
+
+
+const SUCCESS_CODE: i32 = 0;
+const ERROR_CODE  : i32 = 1;
+const EXIT_CODE   : i32 = -1;
+
+
+fn main() {
+    let clear_escape_sequence = "\x1b[2J\x1b[1;1H";
+    print!("{}", clear_escape_sequence);
+    let prompt_seq = "\x1b[92m@\x1b[0m";
+    loop {
+        print!("{} ", prompt_seq);
+
+        io::stdout().flush().unwrap();
+        let mut command_input = String::new();
+        io::stdin().read_line(&mut command_input).expect("Failed to read in command");
+        let command = tokenize_command(command_input);
+        let return_code = process_command(command);
+        if return_code == EXIT_CODE {
+            break;
+        }
+    }
+}
 
 struct Command {
     keyword: String,
     arguments: Vec<String>,
 }
-
 
 enum BuiltinCommand {
     Echo,
@@ -20,6 +43,7 @@ enum BuiltinCommand {
     Pwd,
     Ls,
     Clear,
+    Exit,
 }
 
 impl FromStr for BuiltinCommand {
@@ -33,21 +57,9 @@ impl FromStr for BuiltinCommand {
             "pwd" => Ok(BuiltinCommand::Pwd),
             "ls" => Ok(BuiltinCommand::Ls),
             "clear" => Ok(BuiltinCommand::Clear),
+            "exit" => Ok(BuiltinCommand::Exit),
             _ => Err(()),
         }
-    }
-}
-
-fn main() {
-    let prompt_char = '@';
-    loop {
-        print!("{} ", prompt_char);
-        io::stdout().flush().unwrap();
-        let mut command = String::new();
-        io::stdin().read_line(&mut command).expect("Failed to read in command");
-        
-        let command = tokenize_command(command);
-        process_command(command);
     }
 }
 
@@ -71,43 +83,51 @@ fn process_command(command: Command) -> i32 {
         Ok(BuiltinCommand::Pwd) => builtin_pwd(&command.arguments),
         Ok(BuiltinCommand::Ls) => builtin_ls(&command.arguments),
         Ok(BuiltinCommand::Clear) => builtin_clear(&command.arguments),
+        Ok(BuiltinCommand::Exit) => EXIT_CODE,
         Err(()) => {
             println!("Command not found");
-            1
+            ERROR_CODE
         }
     }
 }
 
 fn builtin_echo(args: &Vec<String>) -> i32 {
     println!("{}", args.join(" "));
-    0
+    SUCCESS_CODE
 }
 
 fn builtin_history(_args: &Vec<String>) -> i32 {
     println!("history");
-    0
+    SUCCESS_CODE
 }
 
 fn builtin_pwd(_args: &Vec<String>) -> i32 {
     println!("{}", env::current_dir().unwrap().to_str().unwrap());
-    0
+    SUCCESS_CODE
 }
 
 fn builtin_cd(args: &Vec<String>) -> i32 {
     if args.len() > 1 {
-        panic!("Too many arguments");
+        println!("Too many arguments");
+        return ERROR_CODE;
     }
     if args.len() == 0 {
         let path = Path::new("/home/gleb");
         env::set_current_dir(path).unwrap();
-        return 0;
+        return ERROR_CODE;
     }
-    let path = Path::new(&args[0]);
+    let path;
+    if args[0] == "~" {
+        path = Path::new("/home/gleb"); 
+    } else {
+        path = Path::new(&args[0]);
+    }
     if !path.exists() {
-        panic!("This folder doesn't exist");
+        println!("This folder doesn't exist");
+        return ERROR_CODE;
     }
     env::set_current_dir(path).unwrap();
-    0
+    SUCCESS_CODE
 }
 
 fn builtin_ls(_args: &Vec<String>) -> i32 {
@@ -119,14 +139,14 @@ fn builtin_ls(_args: &Vec<String>) -> i32 {
         if file_type == "dir " {
             filename = filename.bright_blue().on_bright_white().to_string();
         }        
-        println!("{file_type} - {}", filename); 
+        println!("   {file_type} - {}", filename); 
     }
-    0
+    SUCCESS_CODE
 }
 
 fn builtin_clear(_args: &Vec<String>) -> i32 {
-    print!("{}[2J", 27 as char);
-    0
+    print!("\x1b[2J\x1b[1;1H");
+    SUCCESS_CODE
 }
 
 
