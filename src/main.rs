@@ -61,6 +61,7 @@ enum BuiltinCommand {
     Mv,
     Touch,
     Mkdir,
+    Cat,
 }
 
 impl FromStr for BuiltinCommand {
@@ -80,6 +81,7 @@ impl FromStr for BuiltinCommand {
             "mv" => Ok(BuiltinCommand::Mv),
             "touch" => Ok(BuiltinCommand::Touch),
             "mkdir" => Ok(BuiltinCommand::Mkdir),
+            "cat" => Ok(BuiltinCommand::Cat),
             _ => Err(()),
         }
     }
@@ -110,6 +112,7 @@ fn process_command(mut command: Command, commands_vector: &Vec<String>) -> i32 {
         Ok(BuiltinCommand::Mv) => builtin_mv(&command.arguments),
         Ok(BuiltinCommand::Touch) => builtin_touch(&command.arguments),
         Ok(BuiltinCommand::Mkdir) => builtin_mkdir(&command.arguments),
+        Ok(BuiltinCommand::Cat) => builtin_cat(&command.arguments),
         Ok(BuiltinCommand::Exit) => EXIT_CODE,
         Err(()) => {
             let args = command.arguments.clone();
@@ -397,6 +400,77 @@ fn builtin_mkdir(args: &Vec<String>) -> i32 {
             println!("Could not create a directory - {}", e);
         }
     }
+
+    SUCCESS_CODE
+}
+
+fn builtin_cat(args: &Vec<String>) -> i32 {
+    if args.len() == 0 {
+        println!("Not enough arguments");
+        return ERROR_CODE;
+    }
+     
+    let redirection_sign = String::from(">");
+    let mut file_string = String::new();
+
+    if args.contains(&redirection_sign) {
+        if args[args.len() - 2] != redirection_sign {
+            println!("Wrong position of arguments");
+            return ERROR_CODE;
+        }
+        for i  in 0..args.len() - 2 {
+            let file_path = Path::new(&args[i]);
+            if file_path.is_dir() {
+                println!("Error occurred - {} is directory", args[i]);
+                continue;
+            }
+            let file_contents = fs::read_to_string(file_path);
+            match file_contents {
+                Ok(file_contents) => file_string.push_str(&file_contents),
+                Err(err) => {
+                    println!("Error occurred while reading file {}: {}", args[i], err);
+                }
+            }
+        }
+        file_string.pop();
+        let file_path = Path::new(&args[args.len() - 1]);
+        if file_path.is_dir() {
+            println!("Cannot redirect output to directory - {}", args[args.len() - 1]);
+            return ERROR_CODE;
+        }
+        let file = File::create(file_path);
+        match file {
+            Ok(mut file) => {
+                if let Err(err) = file.write_all(file_string.as_bytes()) {
+                    println!("Error occurred while redirecting output: {err}");
+                    return ERROR_CODE;
+                }
+            },
+            Err(err) => {
+                println!("Error occurred when opening file: {err}");
+                return ERROR_CODE;
+            }
+        }
+    } else {
+        for arg in args { 
+            let file_path = Path::new(arg);
+            if file_path.is_dir() {
+                println!("Error occurred - {} is directory", arg);
+                continue;
+            }
+            let file_contents = fs::read_to_string(file_path);
+            match file_contents {
+                Ok(file_contents) => file_string.push_str(&file_contents),
+                Err(err) => {
+                    println!("Error occurred while reading file: {}", err);
+                }
+            }
+        }
+        file_string.pop();
+        println!("{file_string}");
+    }
+
+
 
     SUCCESS_CODE
 }
