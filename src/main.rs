@@ -8,6 +8,8 @@ use std::{
     fs,
 };
 
+mod username;
+
 
 const SUCCESS_CODE: i32 = 0;
 const ERROR_CODE  : i32 = 1;
@@ -19,9 +21,11 @@ fn main() {
     let clear_escape_sequence = "\x1b[2J\x1b[1;1H";
     print!("{}", clear_escape_sequence);
     let prompt_char = '🚀';
+
+    let username = username::get_username();
     loop {
         let current_dir = env::current_dir().unwrap();
-        print!("\x1b[92m{}:\x1b[0m\x1b[94m{}\x1b[0m ", prompt_char, current_dir.to_str().unwrap());
+        print!("\x1b[94m{username}\x1b[0m{}:\x1b[94m{}\x1b[0m ", prompt_char, current_dir.to_str().unwrap());
 
         io::stdout().flush().unwrap();
         let mut command_input = String::new();
@@ -314,7 +318,7 @@ fn builtin_mv(args: &Vec<String>) -> i32 {
     if args.len() >= 2 {
         let path_to = Path::new(&args[args.len() - 1]);
         if path_to.is_dir() {
-            let mut args = args;
+            //let mut args = args;
             if builtin_cp(args) == ERROR_CODE {
                 return ERROR_CODE;
             }
