@@ -1,4 +1,3 @@
-//#![feature(file_set_times)]
 use colored::Colorize;
 use filetime::{FileTime, set_file_atime, set_file_mtime};
 use std::{
@@ -19,6 +18,7 @@ const CRLF        : &str = "\r\n";
 
 
 fn main() {
+    let mut commands_vector: Vec<String> = Vec::new();
     let clear_escape_sequence = "\x1b[2J\x1b[1;1H";
     print!("{}", clear_escape_sequence);
     let prompt_char = '🚀';
@@ -35,7 +35,8 @@ fn main() {
             continue;
         }
         let command = tokenize_command(command_input);
-        let return_code = process_command(command);
+        commands_vector.push(command.keyword.clone());
+        let return_code = process_command(command, &commands_vector);
         if return_code == EXIT_CODE {
             break;
         }
@@ -96,10 +97,10 @@ fn tokenize_command(command: String) -> Command {
     }
 }
 
-fn process_command(mut command: Command) -> i32 {
+fn process_command(mut command: Command, commands_vector: &Vec<String>) -> i32 {
     match BuiltinCommand::from_str(&command.keyword) {
         Ok(BuiltinCommand::Echo) => builtin_echo(&command.arguments),
-        Ok(BuiltinCommand::History) => builtin_history(&command.arguments),
+        Ok(BuiltinCommand::History) => builtin_history(&command.arguments, commands_vector),
         Ok(BuiltinCommand::Cd) => builtin_cd(&command.arguments),
         Ok(BuiltinCommand::Pwd) => builtin_pwd(&command.arguments),
         Ok(BuiltinCommand::Ls) => builtin_ls(&command.arguments),
@@ -185,8 +186,10 @@ fn builtin_echo(args: &Vec<String>) -> i32 {
     SUCCESS_CODE
 }
 
-fn builtin_history(_args: &Vec<String>) -> i32 {
-    println!("history");
+fn builtin_history(_args: &Vec<String>, commands_vector: &Vec<String>) -> i32 {
+    for i in 0..commands_vector.len() {
+        println!("{} {}", i + 1, commands_vector[i]);
+    }
     SUCCESS_CODE
 }
 
@@ -428,6 +431,10 @@ mod tests {
 
     #[test]
     fn echo_cmd() {
-        assert_eq!(0, process_command(tokenize_command(String::from("echo test"))));
+        assert_eq!(0, process_command(
+            tokenize_command(String::from("echo test")),
+            &vec![String::from("hi"), String::from("hello"), String::from("echo test")]
+            )
+        );
     }
 }
