@@ -1,15 +1,16 @@
+//#![feature(file_set_times)]
 use colored::Colorize;
+use filetime::{FileTime, set_file_atime, set_file_mtime};
 use std::{
     collections::HashMap,
     io::{self, Write},
     str::FromStr,
     env,
     path::{Path, PathBuf},
-    fs,
+    fs::{self, File},
 };
 
 mod username;
-
 
 const SUCCESS_CODE: i32 = 0;
 const ERROR_CODE  : i32 = 1;
@@ -57,6 +58,8 @@ enum BuiltinCommand {
     Cp,
     Rm,
     Mv,
+    Touch,
+    Mkdir,
 }
 
 impl FromStr for BuiltinCommand {
@@ -74,6 +77,8 @@ impl FromStr for BuiltinCommand {
             "cp" => Ok(BuiltinCommand::Cp),
             "rm" => Ok(BuiltinCommand::Rm),
             "mv" => Ok(BuiltinCommand::Mv),
+            "touch" => Ok(BuiltinCommand::Touch),
+            "mkdir" => Ok(BuiltinCommand::Mkdir),
             _ => Err(()),
         }
     }
@@ -102,6 +107,8 @@ fn process_command(mut command: Command) -> i32 {
         Ok(BuiltinCommand::Cp) => builtin_cp(&command.arguments),
         Ok(BuiltinCommand::Rm) => builtin_rm(&command.arguments),
         Ok(BuiltinCommand::Mv) => builtin_mv(&command.arguments),
+        Ok(BuiltinCommand::Touch) => builtin_touch(&command.arguments),
+        Ok(BuiltinCommand::Mkdir) => builtin_mkdir(&command.arguments),
         Ok(BuiltinCommand::Exit) => EXIT_CODE,
         Err(()) => {
             let args = command.arguments.clone();
@@ -240,15 +247,15 @@ fn builtin_rm(args: &Vec<String>) -> i32 {
                 match fs::remove_file(arg_path) {
                     Ok(()) => (),
                     Err(e) => {
-                        println!("{}", e);
+                        println!("Error occurred when removing file - {}", e);
                         return ERROR_CODE;
                     },
                 }
             } else if arg_path.is_dir() {
-                match fs::remove_dir(arg_path) {
+                match fs::remove_dir_all(arg_path) {
                     Ok(()) => (),
                     Err(e) => {
-                        println!("{}", e);
+                        println!("Error occurred when removing directory - {}", e);
                         return ERROR_CODE;
                     },
                 }
@@ -263,7 +270,7 @@ fn builtin_rm(args: &Vec<String>) -> i32 {
             match fs::remove_file(arg_path) {
                 Ok(()) => (),
                 Err(e) => {
-                    println!("{}", e);
+                    println!("Error occurred when removing file - {}", e);
                     return ERROR_CODE;
                 },
             }
@@ -347,6 +354,48 @@ fn builtin_mv(args: &Vec<String>) -> i32 {
             ERROR_CODE
         }
     }
+}
+
+fn builtin_touch(args: &Vec<String>) -> i32 {
+    if args.len() == 0 {
+        println!("Not enough arguments");
+        return ERROR_CODE;
+    }
+
+    for arg in args {
+        let arg_path = Path::new(arg);
+        if !arg_path.exists() {
+            File::create(arg_path).unwrap(); 
+        } else {
+            if let Err(_) = set_file_atime(arg_path, FileTime::now()) {
+                return ERROR_CODE;
+            }
+            if let Err(_) = set_file_mtime(arg_path, FileTime::now()) {
+                return ERROR_CODE;
+            }
+        }
+    }
+    SUCCESS_CODE
+}
+
+fn builtin_mkdir(args: &Vec<String>) -> i32 {
+    if args.len() == 0 {
+        println!("Not enough arguments");
+        return ERROR_CODE;
+    }
+
+    for arg in args {
+        let arg_path = Path::new(arg);
+        if arg_path.exists() {
+            println!("Cannot create directory: file {} exists", arg);
+            continue;
+        }
+        if let Err(e) = fs::create_dir(arg_path) {
+            println!("Could not create a directory - {}", e);
+        }
+    }
+
+    SUCCESS_CODE
 }
 
 
