@@ -1,0 +1,14 @@
+This is a list of builtin commands:
+ > echo - display a line of text;
+ > history - display a history of entered commands;
+ > cd - change directory;
+ > pwd - print name of current directory;
+ > ls - list directory contents;
+ > clear - clear the terminal screen;
+ > exit - exit the terminal;
+ > cp - copy one file into another;
+ > rm - remove file/directory;
+ > mv - move file into another place;
+ > touch - change timestamps of file/directory;
+ > mkdir - create a new directory;
+ > cat - concatenate files into another file or print to standard stdout;
