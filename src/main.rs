@@ -1,12 +1,14 @@
 use colored::Colorize;
+use chrono::prelude::*;
 use filetime::{FileTime, set_file_atime, set_file_mtime};
 use std::{
+    time::{Duration, UNIX_EPOCH},
     collections::HashMap,
     io::{self, Write},
     str::FromStr,
     env,
     path::{Path, PathBuf},
-    fs::{self, File},
+    fs::{self, File, Metadata, Permissions, DirEntry},
 };
 
 mod username;
@@ -15,6 +17,7 @@ const SUCCESS_CODE: i32 = 0;
 const ERROR_CODE  : i32 = 1;
 const EXIT_CODE   : i32 = -1;
 const CRLF        : &str = "\r\n";
+const HELP_FILE_INFO: &str = "help.txt";
 
 
 fn main() {
@@ -34,8 +37,13 @@ fn main() {
         if command_input == CRLF {
             continue;
         }
+
+        let mut command_input_clone = command_input.clone();
+        command_input_clone.pop();
+        command_input_clone.pop();
+        commands_vector.push(command_input_clone);
+
         let command = tokenize_command(command_input);
-        commands_vector.push(command.keyword.clone());
         let return_code = process_command(command, &commands_vector);
         if return_code == EXIT_CODE {
             break;
@@ -62,6 +70,7 @@ enum BuiltinCommand {
     Touch,
     Mkdir,
     Cat,
+    Help,
 }
 
 impl FromStr for BuiltinCommand {
@@ -82,15 +91,13 @@ impl FromStr for BuiltinCommand {
             "touch" => Ok(BuiltinCommand::Touch),
             "mkdir" => Ok(BuiltinCommand::Mkdir),
             "cat" => Ok(BuiltinCommand::Cat),
+            "help" => Ok(BuiltinCommand::Help),
             _ => Err(()),
         }
     }
 }
 
 fn tokenize_command(command: String) -> Command {
-    if command == "\r\n" {
-        return Command { keyword: String::new(), arguments: Vec::<String>::new(), };
-    }
     let mut tokens: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
    
     Command { 
@@ -113,6 +120,7 @@ fn process_command(mut command: Command, commands_vector: &Vec<String>) -> i32 {
         Ok(BuiltinCommand::Touch) => builtin_touch(&command.arguments),
         Ok(BuiltinCommand::Mkdir) => builtin_mkdir(&command.arguments),
         Ok(BuiltinCommand::Cat) => builtin_cat(&command.arguments),
+        Ok(BuiltinCommand::Help) => builtin_help(&command.arguments),
         Ok(BuiltinCommand::Exit) => EXIT_CODE,
         Err(()) => {
             let args = command.arguments.clone();
@@ -225,18 +233,128 @@ fn builtin_cd(args: &Vec<String>) -> i32 {
     SUCCESS_CODE
 }
 
-fn builtin_ls(_args: &Vec<String>) -> i32 {
-    let paths = fs::read_dir("./").unwrap();
+struct FileDisplayInfo {
+    file_path: PathBuf,
+    filename: String,
+    last_modified_time: DateTime<Local>,
+    filesize: u64,
+    file_type: Metadata,
+    permissions: Permissions,
+}
 
-    for path in paths {
-        let file_type = if path.as_ref().unwrap().metadata().unwrap().is_dir() { "dir " } else { "file" };
-        let mut filename = path.unwrap().file_name().into_string().unwrap();
-        if file_type == "dir " {
-            filename = filename.bright_blue().on_bright_white().to_string();
-        }        
-        println!("   {file_type} - {}", filename); 
+fn builtin_ls(args: &Vec<String>) -> i32 { 
+    let mut dirs_to_list = Vec::new();
+
+    let mut arg_dirs: Vec<&String> = args.iter().filter(|arg| !arg.starts_with("-")).collect();
+    dirs_to_list.append(&mut arg_dirs);
+
+    let current_dir = String::from("./");
+
+    if dirs_to_list.len() == 0 {
+        dirs_to_list.push(&current_dir);
     }
-    SUCCESS_CODE
+
+    let mut dir_files_map: HashMap<&String, Vec<FileDisplayInfo>> = HashMap::new();
+
+    for dir in dirs_to_list {
+
+        let paths: Vec<Result<DirEntry, std::io::Error>> = fs::read_dir(dir).unwrap().collect();
+
+        if paths.len() == 0 { 
+            return ERROR_CODE;
+        }
+        let mut files = Vec::new();
+
+        let mut longest_filesize: String = paths[0].as_ref().unwrap().metadata().unwrap().len().to_string();
+
+        for path in paths {
+            let file_type = path.as_ref().unwrap().metadata().unwrap();
+            let filename = path.as_ref().unwrap().file_name().into_string().unwrap();
+            let filesize: u64;
+            filesize = path.as_ref().unwrap().metadata().unwrap().len();
+            let last_modified_time = path.as_ref().unwrap().metadata().unwrap().modified().unwrap();
+            let seconds = last_modified_time.duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let datetime = DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(seconds));
+
+            let permissions = path.as_ref().unwrap().metadata().unwrap().permissions();
+
+            let file_display = FileDisplayInfo {
+                file_path: path.unwrap().path(),
+                filename,
+                last_modified_time: datetime,
+                filesize,
+                file_type,
+                permissions,
+            };
+
+            files.push(file_display);
+
+            if filesize.to_string().len() > longest_filesize.len() {
+                longest_filesize = filesize.to_string();
+            }
+        }
+
+        dir_files_map.insert(dir, files);
+    }
+
+    if args.contains(&String::from("-l")) {
+        for (dir, files) in dir_files_map {
+            for file in &files {
+                let longest_filesize = files
+                    .iter()
+                    .max_by(|x, y| 
+                            x.filesize.to_string().len()
+                            .cmp(&y.filesize.to_string().len()))
+                    .unwrap()
+                    .filesize
+                    .to_string();
+                let mut file_info_str = String::new();
+
+                let permission = if file.permissions.readonly() { "rd " } else { "wr " };
+                file_info_str.push_str(permission);
+                let file_type = if file.file_type.is_dir() { "dir  " } else { "file " };
+                file_info_str.push_str(file_type);
+                file_info_str.push_str(&file.filesize.to_string());
+
+                let spaces = " ".repeat((longest_filesize.len() + 1) - file.filesize.to_string().len());
+                file_info_str.push_str(&spaces);
+
+                let timestamp_str = file.last_modified_time.format("%d-%m-%Y %H:%M:%S").to_string();
+                file_info_str.push_str(&timestamp_str);
+                file_info_str.push(' ');
+
+                if file_type == "dir  " {
+                    let filename = file.filename.blue().on_white().to_string();
+                    file_info_str.push_str(&filename);
+                } else {
+                    file_info_str.push_str(&file.filename);
+                }
+                println!("{}", file_info_str);
+            }                  
+        }
+        SUCCESS_CODE
+    } else if args.len() == 0 || args.len() == 1 {
+        for (dir, files) in dir_files_map {
+            for file in files {
+                let mut file_info_str = String::new();
+
+                let file_type = if file.file_type.is_dir() { "dir  " } else { "file " };
+                file_info_str.push_str(file_type);
+
+                if file_type == "dir  " {
+                    let filename = file.filename.blue().on_white().to_string();
+                    file_info_str.push_str(&filename);
+                } else {
+                    file_info_str.push_str(&file.filename);
+                }
+                println!("{}", file_info_str);
+            }
+        }
+        SUCCESS_CODE
+    } else {
+        println!("Wrong arguments");
+        ERROR_CODE
+    }
 }
 
 fn builtin_clear(_args: &Vec<String>) -> i32 {
@@ -291,40 +409,44 @@ fn builtin_rm(args: &Vec<String>) -> i32 {
 fn builtin_cp(args: &Vec<String>) -> i32 {
     if args.len() >= 2 {
         let path_to = Path::new(&args[args.len() - 1]);
+        if !path_to.exists() {
+            println!("Destination file doesn't exist");
+            return ERROR_CODE;
+        }
         if path_to.is_dir() {
             for i in 0..args.len() - 1 {
                 let file_from = Path::new(&args[i]);
                 let mut new_path_to = path_to.to_path_buf();
                 new_path_to.push(&args[i]);
+
                 match fs::copy(file_from, new_path_to) {
                     Ok(_) => (),
-                    Err(_) => {
-                        println!("Error occurred during copying");
-                        return ERROR_CODE;
+                    Err(err) => {
+                        println!("Error occurred during copying - {err}");
                     }
                 }
             }
             return SUCCESS_CODE;
+        } else if args.len() == 2 {
+            let file_from = Path::new(&args[0]);
+            let file_to = Path::new(&args[1]);
+            match fs::copy(file_from, file_to) {
+                Ok(_) => {
+                    SUCCESS_CODE
+                },
+                Err(err) => {
+                    println!("Error occurred during copying - {err}");
+                    ERROR_CODE
+                }
+            }
         } else {
             println!("Erroc occurred - {} is not a dir", args[args.len() - 1]);
-            return ERROR_CODE;
-        }
-    } else if args.len() < 2 {
-        println!("Wrong number and types of arguments");
-        return ERROR_CODE;
-    }
-    
-    let file_from = Path::new(&args[0]);
-    let file_to = Path::new(&args[1]);
-    match fs::copy(file_from, file_to) {
-        Ok(_) => {
-            SUCCESS_CODE
-        },
-        Err(_) => {
-            println!("Error occurred during copying");
             ERROR_CODE
         }
-    }
+    } else {
+        println!("Wrong number and types of arguments");
+        ERROR_CODE
+    } 
 }
 
 fn builtin_mv(args: &Vec<String>) -> i32 {
@@ -368,16 +490,31 @@ fn builtin_touch(args: &Vec<String>) -> i32 {
         return ERROR_CODE;
     }
 
+    let mut set_accces_time = true;
+    let mut set_mod_time = true;
+    if args.contains(&String::from("-a")) && !args.contains(&String::from("-m")) {
+        set_mod_time = false;
+    } else if !args.contains(&String::from("-a")) && args.contains(&String::from("-m")) {
+        set_accces_time = false;
+    }
+    let args: Vec<&String> = args.iter().filter(|&arg| arg != "-a" && arg != "-m").collect();
+
     for arg in args {
         let arg_path = Path::new(arg);
         if !arg_path.exists() {
-            File::create(arg_path).unwrap(); 
-        } else {
-            if let Err(_) = set_file_atime(arg_path, FileTime::now()) {
-                return ERROR_CODE;
+            if let Err(err) = File::create(arg_path) {
+                println!("Couldn't create a new file - {err}");
             }
-            if let Err(_) = set_file_mtime(arg_path, FileTime::now()) {
-                return ERROR_CODE;
+        } else {
+            if set_accces_time {
+                if let Err(_) = set_file_atime(arg_path, FileTime::now()) {
+                    println!("Error while setting access time");
+                }
+            }
+            if set_mod_time {
+                if let Err(_) = set_file_mtime(arg_path, FileTime::now()) {
+                    println!("Error while setting modification time");
+                }
             }
         }
     }
@@ -470,45 +607,54 @@ fn builtin_cat(args: &Vec<String>) -> i32 {
         println!("{file_string}");
     }
 
-
-
     SUCCESS_CODE
+}
+
+fn builtin_help(_args: &Vec<String>) -> i32 {
+    let help_info = fs::read_to_string(HELP_FILE_INFO);
+    match help_info {
+        Ok(help_info_content) => {
+            println!("{}", help_info_content);
+            SUCCESS_CODE
+        }
+        Err(err) => {
+            println!("Could not print help info - {err}");
+            ERROR_CODE
+        }
+    }
 }
 
 
 #[cfg(test)]
-mod tests {
+mod tokenizing_tests {
     use super::*;
 
     #[test]
-    #[should_panic]
-    fn empty_command() {
-        tokenize_command(String::from("")).keyword;
-    }
-
-    #[test]
     fn only_keyword() {
-        assert_eq!("shell", tokenize_command(String::from("shell")).keyword);
-    }
-
-    #[test]
-    fn keyword_and_arguments() {
-        let tokenized_command = tokenize_command(String::from("shell arg1 arg2"));
+        let tokenized_command = tokenize_command(String::from("shell"));
         assert_eq!("shell", tokenized_command.keyword);
-        assert_eq!(vec!["arg1", "arg2"], tokenized_command.arguments);
+        assert_eq!(Vec::<String>::new(), tokenized_command.arguments);
     }
 
     #[test]
-    fn quotes() {
-        assert_eq!(3, tokenize_command(String::from("shell 'first second maybeThird'")).arguments.len());
+    fn keyword_and_one_argument() {
+        let tokenized_command = tokenize_command(String::from("cat arg1 "));
+        assert_eq!("cat", tokenized_command.keyword);
+        assert_eq!(vec![String::from("arg1")], tokenized_command.arguments);
     }
 
     #[test]
-    fn echo_cmd() {
-        assert_eq!(0, process_command(
-            tokenize_command(String::from("echo test")),
-            &vec![String::from("hi"), String::from("hello"), String::from("echo test")]
-            )
-        );
+    fn keyword_and_two_arguments() {
+        let tokenized_command = tokenize_command(String::from("cat arg1 arg2"));
+        assert_eq!("cat", tokenized_command.keyword);
+        assert_eq!(vec![String::from("arg1"), String::from("arg2")], tokenized_command.arguments);
+    }
+
+    #[test]
+    fn keyword_and_many_arguments() {
+        let tokenized_command = tokenize_command(String::from("cat arg1 arg2 arg3 blabla sth"));
+        assert_eq!("cat", tokenized_command.keyword);
+        assert_eq!(vec![String::from("arg1"), String::from("arg2"), String::from("arg3"), String::from("blabla"), String::from("sth")], 
+                   tokenized_command.arguments);
     }
 }
