@@ -197,31 +197,51 @@ fn builtin_echo(args: &Vec<String>) -> i32 {
     SUCCESS_CODE
 }
 
-fn builtin_history(_args: &Vec<String>, commands_vector: &Vec<String>) -> i32 {
+fn builtin_history(args: &Vec<String>, commands_vector: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("history:\n\
+                  Display a history of entered commands.\n\
+                  The list of commands contains their index number from 1.");
+        return SUCCESS_CODE;
+    }
     for i in 0..commands_vector.len() {
         println!("{} {}", i + 1, commands_vector[i]);
     }
     SUCCESS_CODE
 }
 
-fn builtin_pwd(_args: &Vec<String>) -> i32 {
+fn builtin_pwd(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("pwd:\n\
+                     Display you currrent/working directory");
+        return SUCCESS_CODE;
+    }
     println!("{}", env::current_dir().unwrap().to_str().unwrap());
     SUCCESS_CODE
 }
 
 fn builtin_cd(args: &Vec<String>) -> i32 {
+    let map: HashMap<String, String> = env::vars().collect();
+    let system_drive = &map["HOMEDRIVE"];
+    let full_home_path = system_drive.to_owned() + &map["HOMEPATH"];
+    if args.len() == 1 && args[0] == "--help" {
+        println!("cd:\n\
+                  Change the current directory to user specified one.\n\
+                  If destination directory is not specified, the default will be 'HOMEDRIVE + HOMEPATH' shell variable");
+        return SUCCESS_CODE;
+    }
     if args.len() > 1 {
         println!("Too many arguments");
         return ERROR_CODE;
     }
     if args.len() == 0 {
-        let path = Path::new("C:\\Users\\Глеб");
+        let path = Path::new(&full_home_path);
         env::set_current_dir(path).unwrap();
         return ERROR_CODE;
     }
     let path;
     if args[0] == "~" {
-        path = Path::new("C:\\Users\\Глеб"); 
+        path = Path::new(&full_home_path); 
     } else {
         path = Path::new(&args[0]);
     }
@@ -243,6 +263,12 @@ struct FileDisplayInfo {
 }
 
 fn builtin_ls(args: &Vec<String>) -> i32 { 
+    if args.len() == 1 && args[0] == "--help" {
+        println!("ls:\n\
+                  Print list of files in specified directory(default directory is current directory).\n\
+                  -l        display folder contens as a list with size, last modified time, permissions");
+        return SUCCESS_CODE;
+    }
     let mut dirs_to_list = Vec::new();
 
     let mut arg_dirs: Vec<&String> = args.iter().filter(|arg| !arg.starts_with("-")).collect();
@@ -258,6 +284,11 @@ fn builtin_ls(args: &Vec<String>) -> i32 {
 
     for dir in dirs_to_list {
 
+        let paths = fs::read_dir(dir);
+        if let Err(err) = paths {
+            println!("Error: {err}");
+            continue;
+        }
         let paths: Vec<Result<DirEntry, std::io::Error>> = fs::read_dir(dir).unwrap().collect();
 
         if paths.len() == 0 { 
@@ -298,7 +329,8 @@ fn builtin_ls(args: &Vec<String>) -> i32 {
     }
 
     if args.contains(&String::from("-l")) {
-        for (dir, files) in dir_files_map {
+        for (dir_name, files) in dir_files_map {
+            println!("{dir_name}:");
             for file in &files {
                 let longest_filesize = files
                     .iter()
@@ -331,10 +363,12 @@ fn builtin_ls(args: &Vec<String>) -> i32 {
                 }
                 println!("{}", file_info_str);
             }                  
+            println!();
         }
         SUCCESS_CODE
-    } else if args.len() == 0 || args.len() == 1 {
-        for (dir, files) in dir_files_map {
+    } else {
+        for (dir_name, files) in dir_files_map {
+            println!("{dir_name}:");
             for file in files {
                 let mut file_info_str = String::new();
 
@@ -349,20 +383,29 @@ fn builtin_ls(args: &Vec<String>) -> i32 {
                 }
                 println!("{}", file_info_str);
             }
+            println!();
         }
         SUCCESS_CODE
-    } else {
-        println!("Wrong arguments");
-        ERROR_CODE
     }
 }
 
-fn builtin_clear(_args: &Vec<String>) -> i32 {
+fn builtin_clear(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("clear:\n\
+                  Clears the terminal screen.");
+        return SUCCESS_CODE;
+    }
     print!("\x1b[2J\x1b[1;1H");
     SUCCESS_CODE
 }
 
 fn builtin_rm(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("rm:\n\
+                 Removes files and directories in current directory.\n\
+                 -r         Remove recursively(for removing directories)");
+        return SUCCESS_CODE;
+    }
     if args.contains(&String::from("-r")) {
         let args: Vec<&String> = args.iter().filter(|&arg| arg != "-r").collect();
         for arg in args {
@@ -407,6 +450,11 @@ fn builtin_rm(args: &Vec<String>) -> i32 {
 }
 
 fn builtin_cp(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("cp:\n\
+                  Copy file or files into another file or given folder");
+        return SUCCESS_CODE;
+    }
     if args.len() >= 2 {
         let path_to = Path::new(&args[args.len() - 1]);
         if !path_to.exists() {
@@ -450,6 +498,12 @@ fn builtin_cp(args: &Vec<String>) -> i32 {
 }
 
 fn builtin_mv(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("mv:\n\
+                  Moves one file to another place.\n\
+                  If the files already exists, changes his name");
+        return SUCCESS_CODE;
+    }
     if args.len() >= 2 {
         let path_to = Path::new(&args[args.len() - 1]);
         if path_to.is_dir() {
@@ -485,6 +539,14 @@ fn builtin_mv(args: &Vec<String>) -> i32 {
 }
 
 fn builtin_touch(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("touch:\n\
+                  Update modified and accessed time on the file or directory to the current time.\n\
+                  If the file does not exist, it will be created.\n\
+                  -a            Change only accessed time.\n\
+                  -m            Change only modified time.");
+        return SUCCESS_CODE;
+    }
     if args.len() == 0 {
         println!("Not enough arguments");
         return ERROR_CODE;
@@ -522,6 +584,11 @@ fn builtin_touch(args: &Vec<String>) -> i32 {
 }
 
 fn builtin_mkdir(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("mkdir:\n\
+                  Creates a folder, if it does not exist");
+        return SUCCESS_CODE;
+    }
     if args.len() == 0 {
         println!("Not enough arguments");
         return ERROR_CODE;
@@ -542,6 +609,12 @@ fn builtin_mkdir(args: &Vec<String>) -> i32 {
 }
 
 fn builtin_cat(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("cat:\n\
+                  Concatenate files into another file or prints it to standard output.\n\
+                  The result can be redirected via '>' to file.");
+        return SUCCESS_CODE;
+    }
     if args.len() == 0 {
         println!("Not enough arguments");
         return ERROR_CODE;
@@ -610,7 +683,12 @@ fn builtin_cat(args: &Vec<String>) -> i32 {
     SUCCESS_CODE
 }
 
-fn builtin_help(_args: &Vec<String>) -> i32 {
+fn builtin_help(args: &Vec<String>) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        println!("help:\n\
+                  Display information aboult all available buitlin commands");
+        return SUCCESS_CODE;
+    }
     let help_info = fs::read_to_string(HELP_FILE_INFO);
     match help_info {
         Ok(help_info_content) => {
