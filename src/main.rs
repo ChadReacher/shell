@@ -17,7 +17,7 @@ const SUCCESS_CODE: i32 = 0;
 const ERROR_CODE  : i32 = 1;
 const EXIT_CODE   : i32 = -1;
 const CRLF        : &str = "\r\n";
-const HELP_FILE_INFO: &str = "help.txt";
+const HELP_FILE_INFO_NAME: &str = "C:\\code\\rust\\shell\\help.txt";
 
 
 fn main() {
@@ -499,7 +499,7 @@ fn builtin_mv(command: Command) -> i32 {
                   If the files already exists, changes his name");
         return SUCCESS_CODE;
     }
-    if command.arguments.len() > 2 {
+    if command.arguments.len() >= 2 {
         let last_item = command.arguments.last().unwrap();
         let path_to = Path::new(&last_item);
         if path_to.is_dir() {
@@ -511,6 +511,24 @@ fn builtin_mv(command: Command) -> i32 {
             if builtin_rm(cmd) == ERROR_CODE {
                 return ERROR_CODE;
             }
+        } else if command.arguments.len() == 2 {
+            let file_from = Path::new(&command.arguments[0]);
+            let last_item = command.arguments.last().unwrap();
+            let file_to = Path::new(&last_item);
+            if file_from.is_dir() && file_to.is_file() {
+                println!("Cannot rename non-directory {} with directory {}", last_item, command.arguments[0]);
+                return ERROR_CODE;
+            }
+            
+            match fs::rename(file_from, file_to) {
+                Ok(_) => {
+                    return SUCCESS_CODE;
+                },
+                Err(e) => {
+                    println!("Error occurred during moving _ {e}");
+                    return ERROR_CODE;
+                }
+            }
         } else {
             println!("Erroc occurred - {} is not a dir", command.arguments.last().unwrap());
             return ERROR_CODE;
@@ -519,25 +537,8 @@ fn builtin_mv(command: Command) -> i32 {
     } else if command.arguments.len() < 2 {
         println!("Wrong number and types of arguments");
         return ERROR_CODE;
-    }
-
-    let file_from = Path::new(&command.arguments[0]);
-    let last_item = command.arguments.last().unwrap();
-    let file_to = Path::new(&last_item);
-    if file_from.is_dir() && file_to.is_file() {
-        println!("Cannot rename non-directory {} with directory {}", last_item, command.arguments[0]);
-        return ERROR_CODE;
-    }
-    
-    match fs::rename(file_from, file_to) {
-        Ok(_) => {
-            SUCCESS_CODE
-        },
-        Err(e) => {
-            println!("Error occurred during moving _ {e}");
-            ERROR_CODE
-        }
-    }
+    } 
+    SUCCESS_CODE
 }
 
 fn builtin_touch(command: Command) -> i32 {
@@ -652,10 +653,6 @@ fn builtin_cat(mut command: Command) -> i32 {
             }
         }
     }
-    //dbg!(&file_string);
-    //file_string.pop();
-    //file_string.pop();
-    //dbg!(&file_string);
 
     if contains_redirection && !file_string.is_empty() {
         let file_path = Path::new(&dest_file);
@@ -690,7 +687,7 @@ fn builtin_help(command: Command) -> i32 {
                   Display information aboult all available buitlin commands");
         return SUCCESS_CODE;
     }
-    let help_info = fs::read_to_string(HELP_FILE_INFO);
+    let help_info = fs::read_to_string(HELP_FILE_INFO_NAME);
     match help_info {
         Ok(help_info_content) => {
             println!("{}", help_info_content);
